@@ -3,66 +3,77 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Detector de Piscada - OBT</title>
+  <title>Detector de Fadiga - OBT</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
   <style>
     body { 
-      margin: 0; display: flex; justify-content: center; align-items: center; 
+      margin: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; 
       background-color: #121212; height: 100vh; overflow: hidden; font-family: sans-serif; 
     }
     video { 
-      width: 100%; max-width: 400px; border-radius: 12px; transform: scaleX(-1); /* Efeito espelho */
+      width: 100%; max-width: 400px; border-radius: 12px; transform: scaleX(-1); 
     }
-    #status { 
-      position: absolute; top: 20px; font-size: 20px; font-weight: bold; 
-      background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; color: white;
+    #status-container {
+      position: absolute; top: 20px; text-align: center; background: rgba(0,0,0,0.8); 
+      padding: 15px; border-radius: 8px; color: white; width: 80%; max-width: 350px;
     }
+    #status { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
+    #details { font-size: 16px; color: #AAAAAA; }
   </style>
 </head>
 <body>
   
-  <div id="status">Iniciando câmera...</div>
-  <video id="webcam" autoplay playsinline muted style="width: 100%; transform: scaleX(-1);"></video>
+  <div id="status-container">
+    <div id="status">Iniciando câmera...</div>
+    <div id="details">Aguardando dados</div>
+  </div>
+  
+  <video id="webcam" autoplay playsinline muted></video>
 
   <script>
     const videoElement = document.getElementById('webcam');
     const statusText = document.getElementById('status');
-    let piscando = false; // Trava para não registrar a mesma piscada várias vezes
+    const detailsText = document.getElementById('details');
+    
+    // Variáveis de controle de tempo e estado
+    let olhosFechados = false; 
+    let tempoInicioFechamento = 0;
 
-    // Pontos exatos do MediaPipe para os olhos
+    // --- CONFIGURAÇÕES DE SENSIBILIDADE (Ajuste se necessário) ---
+    // EAR para considerar que o olho FECHOU (tem que ser baixo para evitar falsos positivos)
+    const EAR_FECHADO = 0.18; 
+    // EAR para considerar que o olho ABRIU (tem que ser um pouco maior para confirmar)
+    const EAR_ABERTO = 0.22;  
+
+    // --- CONFIGURAÇÕES DE TEMPO (em milissegundos) ---
+    const TEMPO_MAX_NORMAL = 400;      // Até 400ms = Piscada Normal
+    const TEMPO_MAX_MICROFECHAMENTO = 1000; // De 401ms a 1000ms (1 seg) = Microfechamento
+    // Acima de 1000ms = Microssono
+
     const OLHO_ESQUERDO = [33, 160, 158, 133, 153, 144];
     const OLHO_DIREITO = [362, 385, 387, 263, 373, 380];
 
-    // Fórmula da distância entre dois pontos (Teorema de Pitágoras)
     function calcularDistancia(p1, p2) {
       return Math.hypot(p1.x - p2.x, p1.y - p2.y);
     }
 
-    // Aplicação da fórmula do EAR
     function calcularEAR(landmarks, indices) {
-      const p1 = landmarks[indices[0]];
-      const p2 = landmarks[indices[1]];
-      const p3 = landmarks[indices[2]];
-      const p4 = landmarks[indices[3]];
-      const p5 = landmarks[indices[4]];
-      const p6 = landmarks[indices[5]];
-
+      const p1 = landmarks[indices[0]], p2 = landmarks[indices[1]], p3 = landmarks[indices[2]];
+      const p4 = landmarks[indices[3]], p5 = landmarks[indices[4]], p6 = landmarks[indices[5]];
       const vertical1 = calcularDistancia(p2, p6);
       const vertical2 = calcularDistancia(p3, p5);
       const horizontal = calcularDistancia(p1, p4);
-
       return (vertical1 + vertical2) / (2.0 * horizontal);
     }
 
-    // Configurando o MediaPipe FaceMesh
     const faceMesh = new FaceMesh({locateFile: (file) => {
       return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
     }});
 
     faceMesh.setOptions({
       maxNumFaces: 1,
-      refineLandmarks: true, // Exige mais precisão nos olhos e lábios
+      refineLandmarks: true, 
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5
     });
@@ -70,30 +81,49 @@
     faceMesh.onResults((results) => {
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
-        
-        const earEsquerdo = calcularEAR(landmarks, OLHO_ESQUERDO);
-        const earDireito = calcularEAR(landmarks, OLHO_DIREITO);
-        const earMedio = (earEsquerdo + earDireito) / 2.0;
+        const earMedio = (calcularEAR(landmarks, OLHO_ESQUERDO) + calcularEAR(landmarks, OLHO_DIREITO)) / 2.0;
 
-        // VALOR CRÍTICO: Se a detecção estiver falhando, aumente para 0.22. Se estiver sensível demais, diminua para 0.18.
-        const LIMIAR_PISCADA = 0.20; 
+        // Lógica de Histerese para Piscada Completa
+        if (earMedio < EAR_FECHADO && !olhosFechados) {
+          // O olho acabou de fechar completamente
+          olhosFechados = true;
+          tempoInicioFechamento = Date.now(); // Marca a hora exata
+          statusText.innerText = "Olhos Fechados...";
+          statusText.style.color = "#FFA500"; // Laranja
+        } 
+        else if (earMedio > EAR_ABERTO && olhosFechados) {
+          // O olho abriu. A piscada foi completada!
+          olhosFechados = false;
+          const tempoFim = Date.now();
+          const duracao = tempoFim - tempoInicioFechamento; // Duração em milissegundos
+          
+          let classificacao = "";
 
-        if (earMedio < LIMIAR_PISCADA) {
-          if (!piscando) {
-            piscando = true; // Aciona a trava
-            statusText.innerText = "PISCADA DETECTADA!";
-            statusText.style.color = "#00FF00";
-            
-            // --- A MÁGICA ACONTECE AQUI ---
-            // Envia a palavra "PISCADA" para o MIT App Inventor
-            if (window.AppInventor) {
-              window.AppInventor.setWebViewString("PISCADA");
-            }
+          // Classifica a piscada baseada no tempo
+          if (duracao <= TEMPO_MAX_NORMAL) {
+            classificacao = "NORMAL";
+            statusText.style.color = "#00FF00"; // Verde
+          } else if (duracao <= TEMPO_MAX_MICROFECHAMENTO) {
+            classificacao = "MICROFECHAMENTO";
+            statusText.style.color = "#FFFF00"; // Amarelo
+          } else {
+            classificacao = "MICROSSONO";
+            statusText.style.color = "#FF0000"; // Vermelho
           }
-        } else {
-          piscando = false; // Destrava quando abre os olhos
-          statusText.innerText = "Olhos Abertos";
+
+          statusText.innerText = classificacao;
+          detailsText.innerText = `Duração: ${duracao} ms`;
+
+          // Envia para o App Inventor no formato: TIPO,DURACAO (Ex: MICROSSONO,1250)
+          if (window.AppInventor) {
+             window.AppInventor.setWebViewString(`${classificacao},${duracao}`);
+          }
+        } 
+        else if (!olhosFechados) {
+          // Mantém o status neutro quando o olho está simplesmente aberto
+          statusText.innerText = "Monitorando...";
           statusText.style.color = "#FFFFFF";
+          // detailsText.innerText = `EAR Atual: ${earMedio.toFixed(3)}`; // Descomente para debugar o EAR ao vivo
         }
       } else {
         statusText.innerText = "Rosto não detectado";
@@ -101,7 +131,6 @@
       }
     });
 
-    // Configurando e ligando a câmera
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         await faceMesh.send({image: videoElement});
