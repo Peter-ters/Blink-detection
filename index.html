@@ -33,6 +33,7 @@
     let startTime = 0;
     let eyeWasClosed = false;
     let closureTime = 0;
+    let ultimoProgresso = -1; // Evita o bombardeio de dados repetidos no MIT App Inventor
 
     // 3 Parâmetros de Personalização (Valores padrão iniciais)
     let cfgEarFechado = 0.22;
@@ -46,24 +47,21 @@
     faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.6 });
     faceMesh.onResults(onResults);
 
-    // CONFIGURAÇÃO DA CÂMERA (Focada puramente em desempenho de vídeo)
+    // CONFIGURAÇÃO DA CÂMERA (Super leve: 360x360 para o celular voar alto no FPS)
     const camera = new Camera(videoElement, {
       onFrame: async () => {
-        // Agora este bloco SÓ processa a imagem, sem distrações
         await faceMesh.send({image: videoElement});
       },
-      width: 360, height: 360 // Resolução otimizada para rodar liso em WebViews de celular
+      width: 360, height: 360
     });
     camera.start().then(() => { document.title = "Câmera Pronta"; });
 
-    // LOOP INDEPENDENTE PARA ESCUTAR O MIT APP INVENTOR
-    // Em vez de rodar 30 vezes por segundo, checa ordens a cada 300ms.
-    // Isso resolve o travamento do botão CANCELAR e acelera a detecção do olho!
+    // LOOP INDEPENDENTE PARA ESCUTAR O MIT APP INVENTOR (A cada 300ms)
+    // Libera o processador da câmera e aceita o botão CANCELAR instantaneamente
     setInterval(() => {
         if (window.AppInventor) {
             let cmd = window.AppInventor.getWebViewString();
             
-            // Se receber a ordem de START com as configurações anexadas
             if (cmd.startsWith("START") && !isAnalysing) {
                 let partes = cmd.split(",");
                 cfgEarFechado = parseFloat(partes[1]) || 0.22;
@@ -72,7 +70,6 @@
                 
                 startAnalysis();
             }
-            // Se receber a ordem de INTERRUPÇÃO imediata
             if (cmd === "CANCEL" && isAnalysing) {
                 resetAnalysis("INTERROMPIDO");
             }
@@ -84,6 +81,7 @@
         startTime = Date.now();
         stats = { completas: 0, incompletas: 0, microssonos: 0 };
         eyeWasClosed = false;
+        ultimoProgresso = -1;
         scanner.style.display = "block";
         window.AppInventor.setWebViewString("RUNNING"); // Avisa o MIT que começou
     }
@@ -101,9 +99,13 @@
       let elapsed = (Date.now() - startTime) / 1000;
       let progresso = Math.round((elapsed / 30) * 100);
       
-      // Envia o progresso para o MIT via WebViewString
-      if (window.AppInventor) {
-          window.AppInventor.setWebViewString("PROGRESSO," + progresso);
+      // Envia o progresso de forma controlada sem engarrafar o canal de comunicação
+      if (window.AppInventor && progresso !== ultimoProgresso) {
+          let cmdAtual = window.AppInventor.getWebViewString();
+          if (cmdAtual !== "CANCEL") {
+              ultimoProgresso = progresso;
+              window.AppInventor.setWebViewString("PROGRESSO," + progresso);
+          }
       }
 
       // Fim do tempo de análise (30 segundos)
@@ -112,53 +114,4 @@
           return;
       }
 
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
-        
-        // Calcula a média do EAR dos dois olhos
-        const ear = (calcEAR(landmarks, 160, 144, 33, 133) + calcEAR(landmarks, 385, 380, 362, 263)) / 2;
-
-        // Lógica de detecção baseada nos parâmetros customizados
-        if (ear < cfgEarFechado && !eyeWasClosed) {
-            eyeWasClosed = true;
-            closureTime = Date.now();
-        } 
-        else if (ear > cfgEarAberto && eyeWasClosed) {
-            let duracaoFechado = Date.now() - closureTime;
-
-            if (duracaoFechado < 150) {
-                stats.incompletas++; // Piscou muito rápido/incompleto
-            } else if (duracaoFechado < cfgTempoMicrossono) {
-                stats.completas++;   // Piscada saudável/normal
-            } else {
-                stats.microssonos++; // Olho fechado por muito tempo
-            }
-            eyeWasClosed = false;
-        }
-      }
-    }
-
-    function finishAnalysis() {
-        isAnalysing = false;
-        scanner.style.display = "none";
-        document.title = "100%";
-
-        let totalPiscadas = stats.completas + stats.incompletas;
-        let eficiencia = totalPiscadas > 0 ? Math.round((stats.completas / totalPiscadas) * 100) : 100;
-        
-        // ENVIA para o MIT: RESULT, qtd_piscadas, eficiencia, microssonos, ORDEM_DE_PARADA (FIM)
-        let dadosFinais = `RESULT,${stats.completas},${eficiencia},${stats.microssonos},FIM`;
-        
-        if (window.AppInventor) {
-            window.AppInventor.setWebViewString(dadosFinais);
-        }
-    }
-
-    function calcEAR(lm, top, bottom, left, right) {
-        const v = Math.hypot(lm[top].x - lm[bottom].x, lm[top].y - lm[bottom].y);
-        const h = Math.hypot(lm[left].x - lm[right].x, lm[left].y - lm[right].y);
-        return v / h;
-    }
-  </script>
-</body>
-</html>
+      if (results.multi
