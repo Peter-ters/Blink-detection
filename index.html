@@ -35,11 +35,11 @@
     let closureTime = 0;
     let ultimoProgresso = -1; 
     let menorEarDaPiscada = 999; 
-    let horarioUltimaPiscada = 0; // GUARDA O MOMENTO DA ÚLTIMA PISCADA COMPUTADA
+    let tentouPiscar = false; // Novo: Indica que o olho deu sinal de fechar
 
     // 3 Parâmetros de Personalização
-    let cfgEarFechado = 0.22;
-    let cfgEarAberto = 0.25;
+    let cfgEarFechado = 0.21;
+    let cfgEarAberto = 0.26;
     let cfgTempoMicrossono = 1000; 
 
     // Contadores Estatísticos
@@ -63,8 +63,8 @@
             
             if (cmd.startsWith("START") && !isAnalysing) {
                 let partes = cmd.split(",");
-                cfgEarFechado = parseFloat(partes[1]) || 0.22;
-                cfgEarAberto = parseFloat(partes[2]) || 0.25;
+                cfgEarFechado = parseFloat(partes[1]) || 0.21;
+                cfgEarAberto = parseFloat(partes[2]) || 0.26;
                 cfgTempoMicrossono = parseFloat(partes[3]) || 1000;
                 
                 startAnalysis();
@@ -80,9 +80,9 @@
         startTime = Date.now();
         stats = { completas: 0, incompletas: 0, microssonos: 0 };
         eyeWasClosed = false;
+        tentouPiscar = false;
         ultimoProgresso = -1;
         menorEarDaPiscada = 999;
-        horarioUltimaPiscada = 0;
         scanner.style.display = "block";
         window.AppInventor.setWebViewString("RUNNING");
     }
@@ -117,24 +117,30 @@
         const landmarks = results.multiFaceLandmarks[0];
         const ear = (calcEAR(landmarks, 160, 144, 33, 133) + calcEAR(landmarks, 385, 380, 362, 263)) / 2;
 
-        // Só inicia uma nova piscada se já tiver passado 150ms desde o término da última (Bloqueia ruídos)
-        if (ear < cfgEarAberto && (Date.now() - horarioUltimaPiscada > 150)) {
-            if (!eyeWasClosed) {
-                eyeWasClosed = true;
+        // 1. O olho começou a abaixar do limite Aberto (Iniciou uma tentativa de piscada)
+        if (ear < cfgEarAberto) {
+            if (!tentouPiscar) {
+                tentouPiscar = true;
                 closureTime = Date.now();
                 menorEarDaPiscada = ear;
-            } else {
-                if (ear < menorEarDaPiscada) {
-                    menorEarDaPiscada = ear;
-                }
+            } else if (ear < menorEarDaPiscada) {
+                menorEarDaPiscada = ear;
+            }
+
+            // Se atingir o limite estrito de fechado, valida o estado como "Olho Fechado"
+            if (ear <= cfgEarFechado) {
+                eyeWasClosed = true;
             }
         } 
-        else if (ear >= cfgEarAberto && eyeWasClosed) {
+        // 2. O olho só encerra a piscada se passar COMPLETAMENTE do limite Aberto
+        else if (ear >= cfgEarAberto && tentouPiscar) {
             let duracaoFechado = Date.now() - closureTime;
 
-            if (menorEarDaPiscada > cfgEarFechado) {
-                stats.incompletas++; 
+            // Se a pálpebra desceu um pouco mas NUNCA validou como eyeWasClosed, foi incompleta
+            if (!eyeWasClosed) {
+                stats.incompletas++;
             } else {
+                // Se fechou de verdade, calcula pelo tempo se foi normal ou microssono
                 if (duracaoFechado < cfgTempoMicrossono) {
                     stats.completas++;   
                 } else {
@@ -142,7 +148,8 @@
                 }
             }
             
-            horarioUltimaPiscada = Date.now(); // Salva o exato momento em que o olho terminou de abrir
+            // Reseta os estados para a próxima piscada real
+            tentouPiscar = false;
             eyeWasClosed = false;
             menorEarDaPiscada = 999;
         }
