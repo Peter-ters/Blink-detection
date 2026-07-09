@@ -34,6 +34,7 @@
     let eyeWasClosed = false;
     let closureTime = 0;
     let ultimoProgresso = -1; // Evita o bombardeio de dados repetidos no MIT App Inventor
+    let menorEarDaPiscada = 999; // Guarda o menor EAR alcançado enquanto o olho estiver fechando
 
     // 3 Parâmetros de Personalização (Valores padrão iniciais)
     let cfgEarFechado = 0.22;
@@ -57,7 +58,6 @@
     camera.start().then(() => { document.title = "Câmera Pronta"; });
 
     // LOOP INDEPENDENTE PARA ESCUTAR O MIT APP INVENTOR (A cada 300ms)
-    // Libera o processador da câmera e aceita o botão CANCELAR instantaneamente
     setInterval(() => {
         if (window.AppInventor) {
             let cmd = window.AppInventor.getWebViewString();
@@ -82,6 +82,7 @@
         stats = { completas: 0, incompletas: 0, microssonos: 0 };
         eyeWasClosed = false;
         ultimoProgresso = -1;
+        menorEarDaPiscada = 999;
         scanner.style.display = "block";
         window.AppInventor.setWebViewString("RUNNING"); // Avisa o MIT que começou
     }
@@ -114,4 +115,69 @@
           return;
       }
 
-      if (results.multi
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        
+        // Calcula a média do EAR dos dois olhos
+        const ear = (calcEAR(landmarks, 160, 144, 33, 133) + calcEAR(landmarks, 385, 380, 362, 263)) / 2;
+
+        // Se o EAR descer do limite "Aberto", consideramos que começou um movimento de piscada
+        if (ear < cfgEarAberto) {
+            if (!eyeWasClosed) {
+                eyeWasClosed = true;
+                closureTime = Date.now();
+                menorEarDaPiscada = ear; // Começa a registrar o ponto mais baixo
+            } else {
+                // Se achou um valor ainda mais baixo nesta mesma piscada, atualiza
+                if (ear < menorEarDaPiscada) {
+                    menorEarDaPiscada = ear;
+                }
+            }
+        } 
+        // Quando o olho voltar a abrir completamente (passar do limite Aberto)
+        else if (ear >= cfgEarAberto && eyeWasClosed) {
+            let duracaoFechado = Date.now() - closureTime;
+
+            // NOVA LÓGICA: Se o ponto mais baixo que o olho alcançou NÃO atingiu o limite de fechado
+            if (menorEarDaPiscada > cfgEarFechado) {
+                stats.incompletas++; // Significa que piscou pela metade (Incompleta)
+            } 
+            // Se ele fechou direitinho (atingiu o limite), aí o tempo decide se foi normal ou microssono
+            else {
+                if (duracaoFechado < cfgTempoMicrossono) {
+                    stats.completas++;   // Piscada normal e bem sucedida
+                } else {
+                    stats.microssonos++; // Ficou com o olho fechado além da conta
+                }
+            }
+            
+            eyeWasClosed = false;
+            menorEarDaPiscada = 999; // Reseta o monitor para a próxima piscada
+        }
+      }
+    }
+
+    function finishAnalysis() {
+        isAnalysing = false;
+        scanner.style.display = "none";
+        document.title = "100%";
+
+        let totalPiscadas = stats.completas + stats.incompletas;
+        let eficiencia = totalPiscadas > 0 ? Math.round((stats.completas / totalPiscadas) * 100) : 100;
+        
+        // ENVIA para o MIT: RESULT, qtd_piscadas, eficiencia, microssonos, ORDEM_DE_PARADA (FIM)
+        let dadosFinais = `RESULT,${stats.completas},${eficiencia},${stats.microssonos},FIM`;
+        
+        if (window.AppInventor) {
+            window.AppInventor.setWebViewString(dadosFinais);
+        }
+    }
+
+    function calcEAR(lm, top, bottom, left, right) {
+        const v = Math.hypot(lm[top].x - lm[bottom].x, lm[top].y - lm[bottom].y);
+        const h = Math.hypot(lm[left].x - lm[right].x, lm[left].y - lm[right].y);
+        return v / h;
+    }
+  </script>
+</body>
+</html>
