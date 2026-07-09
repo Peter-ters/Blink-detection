@@ -9,10 +9,15 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 
   <style>
-    body { margin: 0; padding: 0; background-color: transparent; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-    #container { position: relative; width: 95vw; height: 95vw; max-width: 380px; max-height: 380px; border-radius: 50%; overflow: hidden; border: 4px solid #00ff66; box-shadow: 0 4px 20px rgba(0,255,102,0.3); }
+    /* O background padrão inicia transparente, mas será controlado pelo MIT */
+    body { margin: 0; padding: 0; background-color: transparent; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; transition: background-color 0.3s; }
+    
+    /* Cores atualizadas para #00D3B3 e rgba correspondente (0, 211, 179) */
+    #container { position: relative; width: 95vw; height: 95vw; max-width: 380px; max-height: 380px; border-radius: 50%; overflow: hidden; border: 4px solid #00D3B3; box-shadow: 0 4px 20px rgba(0, 211, 179, 0.3); }
     video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: rotateY(180deg); }
-    #scanner { position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: #00ff66; box-shadow: 0 0 15px #00ff66; z-index: 10; display: none; animation: scan 2s infinite linear; }
+    
+    /* Scanner com a nova cor */
+    #scanner { position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: #00D3B3; box-shadow: 0 0 15px #00D3B3; z-index: 10; display: none; animation: scan 2s infinite linear; }
     @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
   </style>
 </head>
@@ -60,6 +65,13 @@
     setInterval(() => {
         if (window.AppInventor) {
             let cmd = window.AppInventor.getWebViewString();
+            
+            // NOVO: Controle de Tema vindo do MIT
+            if (cmd.startsWith("THEME")) {
+                let partes = cmd.split(",");
+                document.body.style.backgroundColor = partes[1]; // Aplica a cor (ex: #121212)
+                window.AppInventor.setWebViewString("THEME_OK"); // Limpa para evitar loop
+            }
             
             if (cmd.startsWith("START") && !isAnalysing) {
                 let partes = cmd.split(",");
@@ -155,10 +167,8 @@
         scanner.style.display = "none";
         document.title = "100%";
 
-        // Calcula a quantidade total de movimentos de piscadas detectados
         let totalPiscadas = stats.completas + stats.incompletas;
         
-        // NOVA ORDEM DE ENVIO: RESULT, total_piscadas, qtd_completas, microssonos, FIM
         let dadosFinais = `RESULT,${totalPiscadas},${stats.completas},${stats.microssonos},FIM`;
         
         if (window.AppInventor) {
