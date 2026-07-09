@@ -35,11 +35,11 @@
     let closureTime = 0;
     let ultimoProgresso = -1; 
     let menorEarDaPiscada = 999; 
-    let tentouPiscar = false; // Novo: Indica que o olho deu sinal de fechar
+    let tentouPiscar = false; 
 
     // 3 Parâmetros de Personalização
-    let cfgEarFechado = 0.21;
-    let cfgEarAberto = 0.26;
+    let cfgEarFechado = 0.23;
+    let cfgEarAberto = 0.28;
     let cfgTempoMicrossono = 1000; 
 
     // Contadores Estatísticos
@@ -63,8 +63,8 @@
             
             if (cmd.startsWith("START") && !isAnalysing) {
                 let partes = cmd.split(",");
-                cfgEarFechado = parseFloat(partes[1]) || 0.21;
-                cfgEarAberto = parseFloat(partes[2]) || 0.26;
+                cfgEarFechado = parseFloat(partes[1]) || 0.23;
+                cfgEarAberto = parseFloat(partes[2]) || 0.28;
                 cfgTempoMicrossono = parseFloat(partes[3]) || 1000;
                 
                 startAnalysis();
@@ -117,7 +117,6 @@
         const landmarks = results.multiFaceLandmarks[0];
         const ear = (calcEAR(landmarks, 160, 144, 33, 133) + calcEAR(landmarks, 385, 380, 362, 263)) / 2;
 
-        // 1. O olho começou a abaixar do limite Aberto (Iniciou uma tentativa de piscada)
         if (ear < cfgEarAberto) {
             if (!tentouPiscar) {
                 tentouPiscar = true;
@@ -127,20 +126,16 @@
                 menorEarDaPiscada = ear;
             }
 
-            // Se atingir o limite estrito de fechado, valida o estado como "Olho Fechado"
             if (ear <= cfgEarFechado) {
                 eyeWasClosed = true;
             }
         } 
-        // 2. O olho só encerra a piscada se passar COMPLETAMENTE do limite Aberto
         else if (ear >= cfgEarAberto && tentouPiscar) {
             let duracaoFechado = Date.now() - closureTime;
 
-            // Se a pálpebra desceu um pouco mas NUNCA validou como eyeWasClosed, foi incompleta
             if (!eyeWasClosed) {
                 stats.incompletas++;
             } else {
-                // Se fechou de verdade, calcula pelo tempo se foi normal ou microssono
                 if (duracaoFechado < cfgTempoMicrossono) {
                     stats.completas++;   
                 } else {
@@ -148,7 +143,6 @@
                 }
             }
             
-            // Reseta os estados para a próxima piscada real
             tentouPiscar = false;
             eyeWasClosed = false;
             menorEarDaPiscada = 999;
@@ -161,10 +155,11 @@
         scanner.style.display = "none";
         document.title = "100%";
 
+        // Calcula a quantidade total de movimentos de piscadas detectados
         let totalPiscadas = stats.completas + stats.incompletas;
-        let eficiencia = totalPiscadas > 0 ? Math.round((stats.completas / totalPiscadas) * 100) : 100;
         
-        let dadosFinais = `RESULT,${stats.completas},${eficiencia},${stats.microssonos},FIM`;
+        // NOVA ORDEM DE ENVIO: RESULT, total_piscadas, qtd_completas, microssonos, FIM
+        let dadosFinais = `RESULT,${totalPiscadas},${stats.completas},${stats.microssonos},FIM`;
         
         if (window.AppInventor) {
             window.AppInventor.setWebViewString(dadosFinais);
