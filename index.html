@@ -94,8 +94,10 @@
       let elapsed = (Date.now() - startTime) / 1000;
       let progresso = Math.round((elapsed / 30) * 100);
       
-      // Passa o progresso em tempo real para o MIT via Título da Página
-      document.title = progresso + "%";
+      // Envia o progresso para o MIT via WebViewString
+      if (window.AppInventor) {
+          window.AppInventor.setWebViewString("PROGRESSO," + progresso);
+      }
 
       // Fim do tempo de análise (30 segundos)
       if (elapsed >= 30) {
