@@ -1,144 +1,54 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Detector de Fadiga - OBT</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <title>Detector de Fadiga OBT</title>
+  
+  <script src="camera_utils.js" crossorigin="anonymous"></script>
+  <script src="face_mesh.js" crossorigin="anonymous"></script>
+
   <style>
-    body { 
-      margin: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; 
-      background-color: #121212; height: 100vh; overflow: hidden; font-family: sans-serif; 
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
     }
-    video { 
-      width: 100%; max-width: 400px; border-radius: 12px; transform: scaleX(-1); 
+    #container {
+      position: relative;
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
-    #status-container {
-      position: absolute; top: 20px; text-align: center; background: rgba(0,0,0,0.8); 
-      padding: 15px; border-radius: 8px; color: white; width: 80%; max-width: 350px;
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
-    #status { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
-    #details { font-size: 16px; color: #AAAAAA; }
-  </style>
-</head>
-<body>
-  
-  <div id="status-container">
-    <div id="status">Iniciando câmera...</div>
-    <div id="details">Aguardando dados</div>
-  </div>
-  
-  <video id="webcam" autoplay playsinline muted></video>
-
-  <script>
-    const videoElement = document.getElementById('webcam');
-    const statusText = document.getElementById('status');
-    const detailsText = document.getElementById('details');
-    
-    // Variáveis de controle de tempo e estado
-    let olhosFechados = false; 
-    let tempoInicioFechamento = 0;
-
-    // --- CONFIGURAÇÕES DE SENSIBILIDADE (Ajuste se necessário) ---
-    // EAR para considerar que o olho FECHOU (tem que ser baixo para evitar falsos positivos)
-    const EAR_FECHADO = 0.18; 
-    // EAR para considerar que o olho ABRIU (tem que ser um pouco maior para confirmar)
-    const EAR_ABERTO = 0.22;  
-
-    // --- CONFIGURAÇÕES DE TEMPO (em milissegundos) ---
-    const TEMPO_MAX_NORMAL = 400;      // Até 400ms = Piscada Normal
-    const TEMPO_MAX_MICROFECHAMENTO = 1000; // De 401ms a 1000ms (1 seg) = Microfechamento
-    // Acima de 1000ms = Microssono
-
-    const OLHO_ESQUERDO = [33, 160, 158, 133, 153, 144];
-    const OLHO_DIREITO = [362, 385, 387, 263, 373, 380];
-
-    function calcularDistancia(p1, p2) {
-      return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    /* Inverte a câmera para agir como um espelho retrovisor */
+    .mirror {
+      transform: rotateY(180deg);
     }
-
-    function calcularEAR(landmarks, indices) {
-      const p1 = landmarks[indices[0]], p2 = landmarks[indices[1]], p3 = landmarks[indices[2]];
-      const p4 = landmarks[indices[3]], p5 = landmarks[indices[4]], p6 = landmarks[indices[5]];
-      const vertical1 = calcularDistancia(p2, p6);
-      const vertical2 = calcularDistancia(p3, p5);
-      const horizontal = calcularDistancia(p1, p4);
-      return (vertical1 + vertical2) / (2.0 * horizontal);
-    }
-
-    const faceMesh = new FaceMesh({locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-    }});
-
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true, 
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    faceMesh.onResults((results) => {
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
-        const earMedio = (calcularEAR(landmarks, OLHO_ESQUERDO) + calcularEAR(landmarks, OLHO_DIREITO)) / 2.0;
-
-        // Lógica de Histerese para Piscada Completa
-        if (earMedio < EAR_FECHADO && !olhosFechados) {
-          // O olho acabou de fechar completamente
-          olhosFechados = true;
-          tempoInicioFechamento = Date.now(); // Marca a hora exata
-          statusText.innerText = "Olhos Fechados...";
-          statusText.style.color = "#FFA500"; // Laranja
-        } 
-        else if (earMedio > EAR_ABERTO && olhosFechados) {
-          // O olho abriu. A piscada foi completada!
-          olhosFechados = false;
-          const tempoFim = Date.now();
-          const duracao = tempoFim - tempoInicioFechamento; // Duração em milissegundos
-          
-          let classificacao = "";
-
-          // Classifica a piscada baseada no tempo
-          if (duracao <= TEMPO_MAX_NORMAL) {
-            classificacao = "NORMAL";
-            statusText.style.color = "#00FF00"; // Verde
-          } else if (duracao <= TEMPO_MAX_MICROFECHAMENTO) {
-            classificacao = "MICROFECHAMENTO";
-            statusText.style.color = "#FFFF00"; // Amarelo
-          } else {
-            classificacao = "MICROSSONO";
-            statusText.style.color = "#FF0000"; // Vermelho
-          }
-
-          statusText.innerText = classificacao;
-          detailsText.innerText = `Duração: ${duracao} ms`;
-
-          // Envia para o App Inventor no formato: TIPO,DURACAO (Ex: MICROSSONO,1250)
-          if (window.AppInventor) {
-             window.AppInventor.setWebViewString(`${classificacao},${duracao}`);
-          }
-        } 
-        else if (!olhosFechados) {
-          // Mantém o status neutro quando o olho está simplesmente aberto
-          statusText.innerText = "Monitorando...";
-          statusText.style.color = "#FFFFFF";
-          // detailsText.innerText = `EAR Atual: ${earMedio.toFixed(3)}`; // Descomente para debugar o EAR ao vivo
-        }
-      } else {
-        statusText.innerText = "Rosto não detectado";
-        statusText.style.color = "#FF4444";
-      }
-    });
-
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await faceMesh.send({image: videoElement});
-      },
-      width: 640,
-      height: 480
-    });
-    camera.start();
-  </script>
-</body>
-</html>
+    #status-bar {
+      margin-top: 15px;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 8px 16px;
+      border-radius: 20px;
+      background-color: #222;
+      transition: all
