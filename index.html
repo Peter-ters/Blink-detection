@@ -46,9 +46,20 @@
     faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.6 });
     faceMesh.onResults(onResults);
 
+    // CONFIGURAÇÃO DA CÂMERA (Focada puramente em desempenho de vídeo)
     const camera = new Camera(videoElement, {
       onFrame: async () => {
-        // ESCUTA comandos vindo do MIT App Inventor
+        // Agora este bloco SÓ processa a imagem, sem distrações
+        await faceMesh.send({image: videoElement});
+      },
+      width: 360, height: 360 // Resolução otimizada para rodar liso em WebViews de celular
+    });
+    camera.start().then(() => { document.title = "Câmera Pronta"; });
+
+    // LOOP INDEPENDENTE PARA ESCUTAR O MIT APP INVENTOR
+    // Em vez de rodar 30 vezes por segundo, checa ordens a cada 300ms.
+    // Isso resolve o travamento do botão CANCELAR e acelera a detecção do olho!
+    setInterval(() => {
         if (window.AppInventor) {
             let cmd = window.AppInventor.getWebViewString();
             
@@ -62,15 +73,11 @@
                 startAnalysis();
             }
             // Se receber a ordem de INTERRUPÇÃO imediata
-            if (cmd === "CANCEL") {
+            if (cmd === "CANCEL" && isAnalysing) {
                 resetAnalysis("INTERROMPIDO");
             }
         }
-        await faceMesh.send({image: videoElement});
-      },
-      width: 480, height: 480
-    });
-    camera.start().then(() => { document.title = "Câmera Pronta"; });
+    }, 300);
 
     function startAnalysis() {
         isAnalysing = true;
